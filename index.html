@@ -1,0 +1,464 @@
+<!--
+  Bytescope — local-first image <-> encrypted text.
+  Single self-contained file. No network, no dependencies, no uploads.
+  Encrypts images with a passphrase (AES-256-GCM + PBKDF2 via Web Crypto) so the
+  text blob is safe to store anywhere. Only your passphrase can decrypt it.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bytescope</title>
+<style>
+  :root{
+    --ink:#14171e; --panel:#1b1f29; --panel-2:#20252f;
+    --line:#2c323d; --line-soft:#242a34;
+    --text:#e9e5d8; --muted:#8a93a3; --faint:#5c6470;
+    --amber:#e2a23c; --teal:#5fb6a4; --bad:#d9684f; --good:#7bbf6a;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --ui:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--ink);color:var(--text);font-family:var(--ui);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 64px;}
+
+  header{margin-bottom:18px;}
+  .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
+  .brand h1{font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:-.01em;margin:0;}
+  .brand h1 .lo{color:var(--amber);} .brand h1 .hi{color:var(--teal);}
+  .tag{font-family:var(--mono);font-size:12px;color:var(--faint);letter-spacing:.02em;}
+  .privacy{margin-top:10px;display:inline-flex;align-items:center;gap:9px;font-size:12.5px;color:var(--muted);border:1px solid var(--line-soft);background:var(--panel);padding:7px 12px;border-radius:999px;}
+  .privacy .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:pulse 2.6s ease-out infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,182,164,.45);}70%{box-shadow:0 0 0 7px rgba(95,182,164,0);}100%{box-shadow:0 0 0 0 rgba(95,182,164,0);}}
+  .banner{display:none;margin-top:12px;font-size:13px;color:var(--ink);background:var(--amber);border-radius:9px;padding:10px 14px;}
+
+  /* passphrase bar */
+  .controls{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;}
+  .controls .lk{color:var(--teal);flex:none;display:flex;}
+  .controls .lk svg{width:17px;height:17px;}
+  .controls input{flex:1;min-width:0;background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-family:var(--mono);font-size:13px;outline:none;}
+  .controls input:focus{border-color:var(--teal);}
+  .controls .eye{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;width:36px;height:36px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;}
+  .controls .eye:hover{color:var(--text);border-color:var(--faint);}
+  .controls .eye svg{width:16px;height:16px;}
+  .strength{font-family:var(--mono);font-size:11px;color:var(--faint);width:52px;text-align:right;flex:none;}
+  .strength.weak{color:var(--bad);} .strength.ok{color:var(--amber);} .strength.strong{color:var(--good);}
+
+  /* board */
+  .board{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;}
+  @media (max-width:820px){.board{grid-template-columns:1fr;}}
+  .col{background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:420px;display:flex;flex-direction:column;overflow:hidden;}
+  .col-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line-soft);}
+  .col-head .side{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);}
+  .col.img .side b{color:var(--amber);} .col.txt .side b{color:var(--teal);}
+  .col-head .side b{font-weight:600;}
+
+  .drop{flex:1;margin:14px;border:1.5px dashed var(--line);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:10px;padding:22px;color:var(--muted);cursor:pointer;transition:border-color .15s,background .15s,color .15s;}
+  .drop:hover{border-color:var(--amber);color:var(--text);}
+  .drop.over{border-color:var(--amber);background:rgba(226,162,60,.07);color:var(--text);}
+  .drop svg{width:34px;height:34px;color:var(--faint);}
+  .drop .big{font-size:14px;color:var(--text);} .drop .sm{font-size:12px;color:var(--muted);}
+  .drop kbd{font-family:var(--mono);font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;}
+
+  /* zoomable viewer */
+  .viewer{flex:1;margin:14px;border-radius:10px;position:relative;overflow:hidden;min-height:0;display:none;touch-action:none;cursor:grab;
+    background:linear-gradient(45deg,#1a1e27 25%,transparent 25%,transparent 75%,#1a1e27 75%) 0 0/22px 22px,
+      linear-gradient(45deg,#1a1e27 25%,#181c24 25%,#181c24 75%,#1a1e27 75%) 11px 11px/22px 22px,#181c24;}
+  .viewer.show{display:block;}
+  .viewer.drag{cursor:grabbing;}
+  .viewer img{position:absolute;top:0;left:0;transform-origin:0 0;max-width:none;max-height:none;user-select:none;-webkit-user-drag:none;will-change:transform;}
+  .zoombar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:1px;background:rgba(16,18,24,.82);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:10px;padding:4px;z-index:3;}
+  .zoombar button{width:32px;height:28px;background:transparent;border:none;color:var(--text);cursor:pointer;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;}
+  .zoombar button:hover{background:var(--panel-2);}
+  .zoombar button svg{width:15px;height:15px;}
+  .zoombar .pct{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:48px;text-align:center;user-select:none;}
+  .clearimg{position:absolute;top:8px;right:8px;z-index:3;}
+
+  .iconbtn{background:rgba(16,18,24,.82);border:1px solid var(--line);color:var(--muted);width:28px;height:28px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:all .13s;}
+  .iconbtn:hover{color:var(--bad);border-color:var(--bad);}
+  .iconbtn svg{width:14px;height:14px;}
+
+  textarea{flex:1;margin:14px 14px 12px;background:var(--ink);color:var(--text);border:1px solid var(--line-soft);border-radius:10px;padding:13px 14px;font-family:var(--mono);font-size:12px;line-height:1.55;resize:none;outline:none;word-break:break-all;min-height:0;}
+  textarea:focus{border-color:var(--teal);}
+  textarea::placeholder{color:var(--faint);}
+
+  .bar{display:flex;align-items:center;gap:8px;padding:0 14px 14px;flex-wrap:wrap;}
+  .bar .meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-right:auto;line-height:1.45;}
+  .bar .meta span{color:var(--text);}
+  button.act{font-family:var(--ui);font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all .13s;display:inline-flex;align-items:center;gap:6px;}
+  button.act:hover:not(:disabled){border-color:var(--faint);background:#262c37;}
+  button.act:disabled{opacity:.4;cursor:default;}
+  button.act.ghost{background:transparent;}
+  button.act.primary{background:var(--teal);border-color:var(--teal);color:var(--ink);font-weight:600;}
+  button.act.primary:hover:not(:disabled){filter:brightness(1.07);background:var(--teal);}
+  button.act.lock{background:var(--amber);border-color:var(--amber);color:var(--ink);font-weight:600;}
+  button.act.lock:hover:not(:disabled){filter:brightness(1.07);background:var(--amber);}
+  button.act.ok{color:var(--teal);border-color:var(--teal);}
+  button.act svg{width:14px;height:14px;}
+
+  .note{font-family:var(--mono);font-size:11px;padding:0 16px 14px;color:var(--faint);min-height:14px;}
+  .note.warn{color:var(--amber);} .note.err{color:var(--bad);} .note.good{color:var(--good);}
+
+  .hints{margin-top:18px;display:flex;gap:22px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .hints b{color:var(--text);font-weight:600;} .hints .k{font-family:var(--mono);color:var(--faint);}
+  input[type=file]{display:none;}
+</style>
+
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1><span class="lo">byte</span><span class="hi">scope</span></h1>
+      <span class="tag">encrypt an image into text only your passphrase opens</span>
+    </div>
+    <div class="privacy"><span class="dot"></span> Encryption runs in this tab with the browser's Web Crypto. No uploads, no servers, no network.</div>
+    <div class="banner" id="banner"></div>
+  </header>
+
+  <div class="controls">
+    <span class="lk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+    <input id="pass" type="password" placeholder="Passphrase — your only key to decrypt" autocomplete="off" spellcheck="false">
+    <button class="eye" id="eye" title="Show / hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <span class="strength" id="strength"></span>
+  </div>
+
+  <div class="board">
+    <!-- IMAGE -->
+    <section class="col img">
+      <div class="col-head"><span class="side"><b>Image</b> &middot; plaintext side</span></div>
+
+      <div id="drop" class="drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>
+        <div class="big">Drop an image, or click to browse</div>
+        <div class="sm">or paste with <kbd>Ctrl/Cmd</kbd> + <kbd>V</kbd></div>
+      </div>
+
+      <div id="viewer" class="viewer">
+        <img id="previewImg" alt="" draggable="false">
+        <button id="clearImg" class="iconbtn clearimg" title="Clear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        <div class="zoombar">
+          <button data-z="out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+          <span class="pct" id="zoomPct">100%</span>
+          <button data-z="in" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button data-z="fit" title="Fit to view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+        </div>
+      </div>
+
+      <div class="bar">
+        <div class="meta" id="imgMeta">No image loaded</div>
+        <button class="act ghost" id="savePng" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+          Save image
+        </button>
+      </div>
+    </section>
+
+    <!-- TEXT -->
+    <section class="col txt">
+      <div class="col-head"><span class="side"><b>Text</b> &middot; encrypted, safe to store</span></div>
+      <textarea id="text" spellcheck="false" placeholder="Encrypt an image to get a passphrase-locked blob here.
+
+Or paste a blob you saved earlier, enter its passphrase, and Decrypt to render it on the left."></textarea>
+      <div class="note" id="textNote"></div>
+      <div class="bar">
+        <div class="meta" id="textMeta"></div>
+        <button class="act lock" id="encBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Encrypt
+        </button>
+        <button class="act primary" id="decBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+          Decrypt
+        </button>
+        <button class="act" id="copy" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy
+        </button>
+        <button class="act ghost" id="importTxt">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V5a2 2 0 0 1 2-2h4"/><path d="M21 9V5a2 2 0 0 0-2-2h-4"/><path d="M12 21V8"/><path d="M8 12l4-4 4 4"/></svg>
+          Import
+        </button>
+        <button class="act ghost" id="saveTxt" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+          Save .txt
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div class="hints">
+    <div><b>AES-256-GCM</b> with a <span class="k">PBKDF2</span>-stretched key. Tamper-evident: edited blobs fail to decrypt.</div>
+    <div><b>No recovery:</b> the passphrase is the only key. Lose it and the image is gone.</div>
+  </div>
+</div>
+
+<input type="file" id="file" accept="image/*">
+<input type="file" id="textFile" accept=".txt,.b64,.bscrypt,text/plain">
+
+<script>
+(function(){
+  "use strict";
+
+  var ITER=600000;
+  var MAGIC=[0x42,0x53,0x43,0x31]; // "BSC1"
+
+  var state={img:null,bytes:null,mime:"image/png",name:"image"};
+
+  var $=function(id){return document.getElementById(id);};
+  var drop=$("drop"),viewer=$("viewer"),pImg=$("previewImg"),zoomPct=$("zoomPct");
+  var text=$("text"),pass=$("pass"),eye=$("eye"),strength=$("strength");
+  var imgMeta=$("imgMeta"),textMeta=$("textMeta"),textNote=$("textNote"),banner=$("banner");
+  var encBtn=$("encBtn"),decBtn=$("decBtn"),copyBtn=$("copy"),saveTxt=$("saveTxt"),savePng=$("savePng"),fileInput=$("file");
+  var importBtn=$("importTxt"),textFile=$("textFile");
+
+  var CRYPTO_OK=!!(window.crypto&&window.crypto.subtle);
+  if(!CRYPTO_OK){
+    banner.style.display="block";
+    banner.textContent="Your browser blocked Web Crypto here. Encryption needs a secure context — open this file over http://localhost (e.g. `python3 -m http.server`) and it'll work.";
+  }
+
+  // ---- helpers ----
+  function b2b64(b){var s="",c=0x8000;for(var i=0;i<b.length;i+=c)s+=String.fromCharCode.apply(null,b.subarray(i,i+c));return btoa(s);}
+  function b64ToBytes(b64){var bin=atob(b64),o=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)o[i]=bin.charCodeAt(i);return o;}
+  function fmtBytes(n){if(n<1024)return n+" B";if(n<1048576)return (n/1024).toFixed(1)+" KB";return (n/1048576).toFixed(2)+" MB";}
+  function sniff(b){
+    if(!b||b.length<4)return"";
+    if(b[0]==0x89&&b[1]==0x50&&b[2]==0x4E&&b[3]==0x47)return"image/png";
+    if(b[0]==0xFF&&b[1]==0xD8&&b[2]==0xFF)return"image/jpeg";
+    if(b[0]==0x47&&b[1]==0x49&&b[2]==0x46)return"image/gif";
+    if(b[0]==0x42&&b[1]==0x4D)return"image/bmp";
+    if(b.length>=12&&b[0]==0x52&&b[1]==0x49&&b[2]==0x46&&b[3]==0x46&&b[8]==0x57&&b[9]==0x45&&b[10]==0x42&&b[11]==0x50)return"image/webp";
+    if(b[0]==0x00&&b[1]==0x00&&b[2]==0x01&&b[3]==0x00)return"image/x-icon";
+    var h="";for(var i=0;i<Math.min(b.length,256);i++)h+=String.fromCharCode(b[i]);
+    if(/<svg[\s>]/i.test(h))return"image/svg+xml";
+    return"";
+  }
+  var CODECS={1:"image/png",2:"image/jpeg",3:"image/webp",4:"image/gif",5:"image/bmp",6:"image/svg+xml",7:"image/x-icon"};
+  function codecId(m){for(var k in CODECS)if(CODECS[k]===m)return +k;return 0;}
+  function mimeForId(id){return CODECS[id]||"";}
+  function extFor(m){return ({"image/png":"png","image/jpeg":"jpg","image/webp":"webp","image/gif":"gif","image/bmp":"bmp","image/svg+xml":"svg","image/x-icon":"ico"})[m]||"img";}
+  function loadImg(src){return new Promise(function(res,rej){var im=new Image();im.onload=function(){res(im);};im.onerror=function(){rej(new Error("bad image"));};im.src=src;});}
+  function download(blob,name){var u=URL.createObjectURL(blob);var a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u);},1000);}
+
+  // ================= zoom / pan viewer =================
+  var V={scale:1,x:0,y:0,fit:1,natW:0,natH:0,min:0.05,max:16};
+  function applyV(){pImg.style.transform="translate("+V.x+"px,"+V.y+"px) scale("+V.scale+")";zoomPct.textContent=Math.round(V.scale*100)+"%";}
+  function clampScale(s){return Math.min(V.max,Math.max(V.min,s));}
+  function fitView(){
+    var W=viewer.clientWidth,H=viewer.clientHeight;
+    if(!V.natW||!W||!H)return;
+    V.fit=Math.min(W/V.natW,H/V.natH);
+    V.scale=V.fit;
+    V.x=(W-V.natW*V.scale)/2;V.y=(H-V.natH*V.scale)/2;
+    applyV();
+  }
+  function zoomAt(px,py,factor){
+    var ns=clampScale(V.scale*factor);
+    if(ns===V.scale)return;
+    var ix=(px-V.x)/V.scale,iy=(py-V.y)/V.scale;
+    V.scale=ns;V.x=px-ix*ns;V.y=py-iy*ns;applyV();
+  }
+  function showViewer(src,natW,natH){
+    V.natW=natW;V.natH=natH;
+    pImg.onload=function(){fitView();};
+    pImg.src=src;
+    viewer.classList.add("show");drop.style.display="none";
+    requestAnimationFrame(fitView);
+  }
+  function localXY(e){var r=viewer.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+  function onBar(t){return t.closest(".zoombar")||t.closest("#clearImg");}
+
+  viewer.addEventListener("wheel",function(e){
+    if(!V.natW)return;e.preventDefault();
+    var p=localXY(e);zoomAt(p[0],p[1],e.deltaY<0?1.12:1/1.12);
+  },{passive:false});
+
+  viewer.addEventListener("dblclick",function(e){
+    if(!V.natW||onBar(e.target))return;
+    var p=localXY(e);
+    if(Math.abs(V.scale-V.fit)<0.01) zoomAt(p[0],p[1],2.4); else fitView();
+  });
+
+  // mouse pan
+  var dragging=false,lx=0,ly=0;
+  viewer.addEventListener("mousedown",function(e){
+    if(e.button!==0||!V.natW||onBar(e.target))return;
+    dragging=true;lx=e.clientX;ly=e.clientY;viewer.classList.add("drag");
+  });
+  window.addEventListener("mousemove",function(e){
+    if(!dragging)return;V.x+=e.clientX-lx;V.y+=e.clientY-ly;lx=e.clientX;ly=e.clientY;applyV();
+  });
+  window.addEventListener("mouseup",function(){dragging=false;viewer.classList.remove("drag");});
+
+  // touch pan + pinch
+  var tPan=false,tlx=0,tly=0,pinch=false,startDist=1,startScale=1,pcx=0,pcy=0;
+  function touchInfo(ts){var dx=ts[0].clientX-ts[1].clientX,dy=ts[0].clientY-ts[1].clientY;return {d:Math.hypot(dx,dy),cx:(ts[0].clientX+ts[1].clientX)/2,cy:(ts[0].clientY+ts[1].clientY)/2};}
+  viewer.addEventListener("touchstart",function(e){
+    if(!V.natW||onBar(e.target))return;
+    if(e.touches.length===1){tPan=true;pinch=false;tlx=e.touches[0].clientX;tly=e.touches[0].clientY;}
+    else if(e.touches.length===2){pinch=true;tPan=false;var info=touchInfo(e.touches);startDist=info.d||1;startScale=V.scale;var r=viewer.getBoundingClientRect();pcx=info.cx-r.left;pcy=info.cy-r.top;}
+  },{passive:false});
+  viewer.addEventListener("touchmove",function(e){
+    if(pinch&&e.touches.length===2){e.preventDefault();var info=touchInfo(e.touches);var target=clampScale(startScale*(info.d/startDist));zoomAt(pcx,pcy,target/V.scale);}
+    else if(tPan&&e.touches.length===1){e.preventDefault();var t=e.touches[0];V.x+=t.clientX-tlx;V.y+=t.clientY-tly;tlx=t.clientX;tly=t.clientY;applyV();}
+  },{passive:false});
+  viewer.addEventListener("touchend",function(e){
+    if(e.touches.length===0){tPan=false;pinch=false;}
+    else if(e.touches.length===1){pinch=false;tPan=true;tlx=e.touches[0].clientX;tly=e.touches[0].clientY;}
+  });
+
+  // zoom buttons
+  viewer.querySelector(".zoombar").addEventListener("click",function(e){
+    var btn=e.target.closest("button");if(!btn||!V.natW)return;
+    var z=btn.dataset.z,cx=viewer.clientWidth/2,cy=viewer.clientHeight/2;
+    if(z==="in")zoomAt(cx,cy,1.3);else if(z==="out")zoomAt(cx,cy,1/1.3);else fitView();
+  });
+  window.addEventListener("resize",function(){if(V.natW&&Math.abs(V.scale-V.fit)<0.01)fitView();});
+
+  // ================= image in/out =================
+  function setImage(bytes,mime,natW,natH){
+    state.bytes=bytes;state.mime=mime;
+    savePng.disabled=false;
+    imgMeta.innerHTML="<span>"+mime.replace("image/","").toUpperCase()+"</span> &middot; "+(natW?natW+" &times; "+natH+" px &middot; ":"")+"<span>"+fmtBytes(bytes.length)+"</span>";
+    showViewer("data:"+mime+";base64,"+b2b64(bytes),natW,natH);
+    updateButtons();
+  }
+  function handleFile(file){
+    if(!file)return;
+    state.name=(file.name||"image").replace(/\.[^.]+$/,"")||"image";
+    var fr=new FileReader();
+    fr.onload=function(){
+      var bytes=new Uint8Array(fr.result),mime=sniff(bytes)||file.type||"image/png";
+      loadImg("data:"+mime+";base64,"+b2b64(bytes)).then(function(im){
+        state.img=im;setImage(bytes,mime,im.naturalWidth,im.naturalHeight);
+      }).catch(function(){textNote.className="note err";textNote.textContent="That file isn't a decodable image.";});
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  // ================= crypto =================
+  function deriveKey(passphrase,salt,iters){
+    var enc=new TextEncoder();
+    return crypto.subtle.importKey("raw",enc.encode(passphrase),"PBKDF2",false,["deriveKey"]).then(function(base){
+      return crypto.subtle.deriveKey({name:"PBKDF2",salt:salt,iterations:iters,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+    });
+  }
+  function encryptImage(){
+    if(!state.bytes||!pass.value||!CRYPTO_OK)return;
+    setBusy(encBtn,"Encrypting…");
+    var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+    deriveKey(pass.value,salt,ITER).then(function(key){
+      return crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,state.bytes);
+    }).then(function(ctBuf){
+      var ct=new Uint8Array(ctBuf),head=new Uint8Array(38);
+      head.set(MAGIC,0);head[4]=1;head[5]=codecId(state.mime);
+      new DataView(head.buffer).setUint32(6,ITER,false);
+      head.set(salt,10);head.set(iv,26);
+      var out=new Uint8Array(38+ct.length);out.set(head,0);out.set(ct,38);
+      var blob=b2b64(out);text.value=blob;
+      var chars=blob.length;
+      textMeta.innerHTML="<span>encrypted</span> &middot; "+chars.toLocaleString()+" chars &middot; "+fmtBytes(out.length);
+      textNote.className=chars>19000?"note warn":"note good";
+      textNote.textContent=chars>19000?"Locked. ~"+chars.toLocaleString()+" chars is over a Google Keep note's limit — store it somewhere roomier.":"Locked. Safe to paste anywhere; only the passphrase can open it.";
+      copyBtn.disabled=saveTxt.disabled=false;doneBusy(encBtn,"Encrypt");updateButtons();
+    }).catch(function(e){textNote.className="note err";textNote.textContent="Encryption failed: "+(e.message||e);doneBusy(encBtn,"Encrypt");});
+  }
+  function decryptText(){
+    if(!CRYPTO_OK)return;
+    var raw=text.value.trim();if(!raw||!pass.value)return;
+    var all;try{all=b64ToBytes(raw.replace(/\s+/g,""));}catch(e){textNote.className="note err";textNote.textContent="That doesn't look like an encrypted blob.";return;}
+    if(all.length<38||all[0]!=MAGIC[0]||all[1]!=MAGIC[1]||all[2]!=MAGIC[2]||all[3]!=MAGIC[3]){textNote.className="note err";textNote.textContent="Not a Bytescope encrypted blob.";return;}
+    var codecB=all[5],iters=new DataView(all.buffer,all.byteOffset+6,4).getUint32(0,false);
+    var salt=all.slice(10,26),iv=all.slice(26,38),ct=all.slice(38);
+    setBusy(decBtn,"Decrypting…");
+    deriveKey(pass.value,salt,iters).then(function(key){
+      return crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,ct);
+    }).then(function(plainBuf){
+      var bytes=new Uint8Array(plainBuf),mime=mimeForId(codecB)||sniff(bytes)||"application/octet-stream";
+      return loadImg("data:"+mime+";base64,"+b2b64(bytes)).then(function(im){
+        state.img=im;setImage(bytes,mime,im.naturalWidth,im.naturalHeight);
+        textNote.className="note good";textNote.textContent="Unlocked and verified. Rendered on the left.";doneBusy(decBtn,"Decrypt");
+      }).catch(function(){
+        state.bytes=bytes;state.mime=mime;savePng.disabled=false;
+        textNote.className="note warn";textNote.textContent="Decrypted "+fmtBytes(bytes.length)+", but it isn't a renderable image.";doneBusy(decBtn,"Decrypt");
+      });
+    }).catch(function(){textNote.className="note err";textNote.textContent="Wrong passphrase, or the blob was changed.";doneBusy(decBtn,"Decrypt");});
+  }
+  function setBusy(btn,label){btn.disabled=true;btn.lastChild.textContent=" "+label;}
+  function doneBusy(btn,label){btn.lastChild.textContent=" "+label;updateButtons();}
+
+  // ================= ui state =================
+  function looksLikeBlob(){
+    var s=text.value.trim();if(!s)return false;
+    try{var b=b64ToBytes(s.replace(/\s+/g,"").slice(0,12));return b[0]==MAGIC[0]&&b[1]==MAGIC[1]&&b[2]==MAGIC[2]&&b[3]==MAGIC[3];}catch(e){return false;}
+  }
+  function updateButtons(){
+    var hasPass=!!pass.value;
+    encBtn.disabled=!(CRYPTO_OK&&state.bytes&&hasPass);
+    decBtn.disabled=!(CRYPTO_OK&&looksLikeBlob()&&hasPass);
+    copyBtn.disabled=!text.value;saveTxt.disabled=!text.value;
+  }
+  function rateStrength(p){
+    if(!p)return["",""];
+    var sets=(/[a-z]/.test(p)?1:0)+(/[A-Z]/.test(p)?1:0)+(/[0-9]/.test(p)?1:0)+(/[^A-Za-z0-9]/.test(p)?1:0);
+    if(p.length>=14&&sets>=3)return["strong","strong"];
+    if(p.length>=10&&sets>=2)return["ok","ok"];
+    return["weak","weak"];
+  }
+
+  // ================= events =================
+  drop.addEventListener("click",function(){fileInput.click();});
+  fileInput.addEventListener("change",function(){if(this.files[0])handleFile(this.files[0]);this.value="";});
+  ["dragenter","dragover"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add("over");});});
+  ["dragleave","drop"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove("over");});});
+  drop.addEventListener("drop",function(e){var f=e.dataTransfer.files[0];if(f)handleFile(f);});
+  window.addEventListener("dragover",function(e){e.preventDefault();});
+  window.addEventListener("drop",function(e){
+    e.preventDefault();var f=e.dataTransfer&&e.dataTransfer.files[0];if(!f)return;
+    if(f.type.indexOf("image/")===0){handleFile(f);return;}
+    if(/\.(txt|b64|bscrypt)$/i.test(f.name)||f.type.indexOf("text")===0){loadTextFile(f);}
+  });
+  $("clearImg").addEventListener("click",function(){
+    viewer.classList.remove("show");drop.style.display="flex";
+    state.img=state.bytes=null;V.natW=V.natH=0;
+    savePng.disabled=true;imgMeta.textContent="No image loaded";updateButtons();
+  });
+  window.addEventListener("paste",function(e){
+    var items=e.clipboardData&&e.clipboardData.items;if(!items)return;
+    for(var i=0;i<items.length;i++){if(items[i].type.indexOf("image/")===0){e.preventDefault();handleFile(items[i].getAsFile());return;}}
+  });
+
+  pass.addEventListener("input",function(){var r=rateStrength(this.value);strength.className="strength "+r[0];strength.textContent=r[1];updateButtons();});
+  eye.addEventListener("click",function(){pass.type=pass.type==="password"?"text":"password";});
+  text.addEventListener("input",function(){textNote.className="note";textNote.textContent="";updateButtons();});
+
+  encBtn.addEventListener("click",encryptImage);
+  decBtn.addEventListener("click",decryptText);
+  copyBtn.addEventListener("click",function(){
+    if(!text.value)return;
+    navigator.clipboard.writeText(text.value).then(function(){
+      copyBtn.classList.add("ok");copyBtn.lastChild.textContent=" Copied";
+      setTimeout(function(){copyBtn.classList.remove("ok");copyBtn.lastChild.textContent=" Copy";},1400);
+    });
+  });
+  saveTxt.addEventListener("click",function(){if(!text.value)return;download(new Blob([text.value],{type:"text/plain"}),state.name+".bscrypt.txt");});
+  savePng.addEventListener("click",function(){if(!state.bytes)return;download(new Blob([state.bytes],{type:state.mime}),state.name+"."+extFor(state.mime));});
+
+  // ---- import a text file into the blob box ----
+  function loadTextFile(file){
+    if(!file)return;
+    var r=new FileReader();
+    r.onload=function(){
+      text.value=String(r.result||"").trim();
+      updateButtons();
+      if(looksLikeBlob()){textNote.className="note good";textNote.textContent="Imported encrypted blob. Enter the passphrase and Decrypt.";}
+      else{textNote.className="note warn";textNote.textContent="Imported "+text.value.length.toLocaleString()+" chars, but it isn't a Bytescope blob.";}
+    };
+    r.onerror=function(){textNote.className="note err";textNote.textContent="Couldn't read that file.";};
+    r.readAsText(file);
+  }
+  importBtn.addEventListener("click",function(){textFile.click();});
+  textFile.addEventListener("change",function(){if(this.files[0])loadTextFile(this.files[0]);this.value="";});
+
+  updateButtons();
+</script>
+</body>
