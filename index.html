@@ -84,16 +84,16 @@
   .bar{display:flex;align-items:center;gap:8px;padding:0 14px 14px;flex-wrap:wrap;}
   .bar .meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-right:auto;line-height:1.45;}
   .bar .meta span{color:var(--text);}
-  button.act{font-family:var(--ui);font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all .13s;display:inline-flex;align-items:center;gap:6px;}
-  button.act:hover:not(:disabled){border-color:var(--faint);background:#262c37;}
-  button.act:disabled{opacity:.4;cursor:default;}
-  button.act.ghost{background:transparent;}
-  button.act.primary{background:var(--teal);border-color:var(--teal);color:var(--ink);font-weight:600;}
-  button.act.primary:hover:not(:disabled){filter:brightness(1.07);background:var(--teal);}
-  button.act.lock{background:var(--amber);border-color:var(--amber);color:var(--ink);font-weight:600;}
-  button.act.lock:hover:not(:disabled){filter:brightness(1.07);background:var(--amber);}
-  button.act.ok{color:var(--teal);border-color:var(--teal);}
-  button.act svg{width:14px;height:14px;}
+  .act{font-family:var(--ui);font-size:12.5px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all .13s;display:inline-flex;align-items:center;gap:6px;}
+  .act:hover:not(:disabled){border-color:var(--faint);background:#262c37;}
+  .act:disabled{opacity:.4;cursor:default;}
+  .act.ghost{background:transparent;}
+  .act.primary{background:var(--teal);border-color:var(--teal);color:var(--ink);font-weight:600;}
+  .act.primary:hover:not(:disabled){filter:brightness(1.07);background:var(--teal);}
+  .act.lock{background:var(--amber);border-color:var(--amber);color:var(--ink);font-weight:600;}
+  .act.lock:hover:not(:disabled){filter:brightness(1.07);background:var(--amber);}
+  .act.ok{color:var(--teal);border-color:var(--teal);}
+  .act svg{width:14px;height:14px;}
 
   .note{font-family:var(--mono);font-size:11px;padding:0 16px 14px;color:var(--faint);min-height:14px;}
   .note.warn{color:var(--amber);} .note.err{color:var(--bad);} .note.good{color:var(--good);}
@@ -126,11 +126,11 @@
     <section class="col img">
       <div class="col-head"><span class="side"><b>Image</b> &middot; plaintext side</span></div>
 
-      <div id="drop" class="drop">
+      <label for="file" id="drop" class="drop">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>
-        <div class="big">Drop an image, or click to browse</div>
+        <div class="big">Drop an image, or tap to browse</div>
         <div class="sm">or paste with <kbd>Ctrl/Cmd</kbd> + <kbd>V</kbd></div>
-      </div>
+      </label>
 
       <div id="viewer" class="viewer">
         <img id="previewImg" alt="" draggable="false">
@@ -173,10 +173,10 @@ Or paste a blob you saved earlier, enter its passphrase, and Decrypt to render i
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           Copy
         </button>
-        <button class="act ghost" id="importTxt">
+        <label class="act ghost" id="importTxt" for="textFile">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V5a2 2 0 0 1 2-2h4"/><path d="M21 9V5a2 2 0 0 0-2-2h-4"/><path d="M12 21V8"/><path d="M8 12l4-4 4 4"/></svg>
           Import
-        </button>
+        </label>
         <button class="act ghost" id="saveTxt" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
           Save .txt
@@ -192,7 +192,7 @@ Or paste a blob you saved earlier, enter its passphrase, and Decrypt to render i
 </div>
 
 <input type="file" id="file" accept="image/*">
-<input type="file" id="textFile" accept=".txt,.b64,.bscrypt,text/plain">
+<input type="file" id="textFile" accept=".txt,text/plain">
 
 <script>
 (function(){
@@ -406,7 +406,6 @@ Or paste a blob you saved earlier, enter its passphrase, and Decrypt to render i
   }
 
   // ================= events =================
-  drop.addEventListener("click",function(){fileInput.click();});
   fileInput.addEventListener("change",function(){if(this.files[0])handleFile(this.files[0]);this.value="";});
   ["dragenter","dragover"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add("over");});});
   ["dragleave","drop"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove("over");});});
@@ -456,7 +455,6 @@ Or paste a blob you saved earlier, enter its passphrase, and Decrypt to render i
     r.onerror=function(){textNote.className="note err";textNote.textContent="Couldn't read that file.";};
     r.readAsText(file);
   }
-  importBtn.addEventListener("click",function(){textFile.click();});
   textFile.addEventListener("change",function(){if(this.files[0])loadTextFile(this.files[0]);this.value="";});
 
   updateButtons();
